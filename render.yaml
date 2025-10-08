@@ -1,0 +1,41 @@
+services:
+  # PostgreSQL Database
+  - type: pserv
+    name: olympiad-db
+    env: python
+    plan: free
+    databases:
+      - name: olympiad_db
+        databaseName: olympiad_db
+        user: olympiad_user
+
+  # FastAPI Web Service
+  - type: web
+    name: olympiad-api
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11
+      - key: DB_HOST
+        fromDatabase:
+          name: olympiad-db
+          property: host
+      - key: DB_PORT
+        fromDatabase:
+          name: olympiad-db
+          property: port
+      - key: DB_NAME
+        fromDatabase:
+          name: olympiad-db
+          property: database
+      - key: DB_USER
+        fromDatabase:
+          name: olympiad-db
+          property: user
+      - key: DB_PASSWORD
+        fromDatabase:
+          name: olympiad-db
+          property: password
