@@ -2,7 +2,7 @@ import streamlit as st
 import requests
 
 # API Base URL
-API_BASE_URL = "http://localhost:8000"
+API_BASE_URL = "https://olympiad-app-backend.onrender.com"
 
 st.title("Olympiad API Tester")
 
