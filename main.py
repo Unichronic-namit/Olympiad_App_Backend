@@ -1,7 +1,22 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from routers import exam_overview, sections, syllabus, notes, questions, analytics, auth
 
 app = FastAPI(title="Olympiad App API", version="1.0.0")
+
+# Configure CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "https://olympiad-app-backend.onrender.com",
+        "*"  # Allow all origins for development - restrict in production
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],  # Allow all HTTP methods (GET, POST, PUT, DELETE, OPTIONS, etc.)
+    allow_headers=["*"],  # Allow all headers
+)
 
 # Include routers
 app.include_router(exam_overview.router)
