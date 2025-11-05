@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional, List 
+from typing import Optional, List
 from datetime import datetime, date
 
 # Exam Overview Models
@@ -125,7 +125,6 @@ class UserSignup(BaseModel):
     school_name: Optional[str] = Field(None, max_length=255)
     city: Optional[str] = Field(None, max_length=100)
     state: Optional[str] = Field(None, max_length=100)
-    exam_overview_id: List[int] = Field(..., min_items=1)
 
 class UserLogin(BaseModel):
     email: str
@@ -136,7 +135,7 @@ class UserResponse(BaseModel):
     first_name: str
     last_name: str
     email: str
-    # grade: Optional[int]
+    grade: Optional[int]
     date_of_birth: Optional[date]
     country_code: Optional[str]
     phone_number: Optional[str]

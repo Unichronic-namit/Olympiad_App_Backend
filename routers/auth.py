@@ -13,29 +13,18 @@ def signup(user: UserSignup):
             try:
                 cur.execute("""
                     INSERT INTO users 
-                    (first_name, last_name, email, password, date_of_birth,
+                    (first_name, last_name, email, password, grade, date_of_birth,
                      country_code, phone_number, profile_image, school_name, city, state)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    RETURNING user_id, first_name, last_name, email, date_of_birth,
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    RETURNING user_id, first_name, last_name, email, grade, date_of_birth,
                               country_code, phone_number, profile_image, school_name, 
                               city, state, email_verified, phone_verified, last_login,
                               is_active, created_at, updated_at
                 """, (user.first_name, user.last_name, user.email, user.password, 
-                       user.date_of_birth, user.country_code, user.phone_number,
+                      user.grade, user.date_of_birth, user.country_code, user.phone_number,
                       user.profile_image, user.school_name, user.city, user.state))
                 
                 new_user = cur.fetchone()
-                user_id = new_user['user_id']
-
-                exam_data = [(user_id, exam_id) for exam_id in user.exam_overview_id]
-
-                # Insert multiple rows into user_exams table
-                cur.executemany("""
-                    INSERT INTO user_exams 
-                    (user_id, exam_overview_id)
-                    VALUES (%s, %s)
-                """, exam_data)
-
                 conn.commit()
                 return new_user
                 
@@ -55,7 +44,7 @@ def login(credentials: UserLogin):
     with get_db() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT user_id, first_name, last_name, email, date_of_birth,
+                SELECT user_id, first_name, last_name, email, grade, date_of_birth,
                        country_code, phone_number, profile_image, school_name, 
                        city, state, email_verified, phone_verified, last_login,
                        is_active, created_at, updated_at, password
