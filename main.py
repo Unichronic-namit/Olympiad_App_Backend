@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routers import exam_overview, sections, syllabus, notes, questions, analytics, auth, user_exams
+from routers import exam_overview, sections, syllabus, notes, questions, analytics, auth, user_exams, user_info
 
 app = FastAPI(title="Olympiad App API", version="1.0.0")
 
@@ -27,6 +27,7 @@ app.include_router(questions.router)
 app.include_router(analytics.router)
 app.include_router(auth.router)
 app.include_router(user_exams.router)
+app.include_router(user_info.router)
 
 @app.get("/")
 def root():

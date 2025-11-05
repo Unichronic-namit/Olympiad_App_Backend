@@ -150,3 +150,48 @@ class UserResponse(BaseModel):
     is_active: bool
     created_at: datetime  # Changed from str to datetime
     updated_at: datetime  # Changed from str to datetime
+
+class UserInfoResponse(BaseModel):
+    first_name: str
+    last_name: str
+    email: str
+    date_of_birth: Optional[date]
+    country_code: Optional[str]
+    phone_number: Optional[str]
+    profile_image: Optional[str]
+    school_name: Optional[str]
+    city: Optional[str]
+    state: Optional[str]
+
+class UserUpdateRequest(BaseModel):
+    first_name: str
+    last_name: str
+    date_of_birth: Optional[date]
+    country_code: Optional[str]
+    phone_number: Optional[str]
+    profile_image: Optional[str]
+    school_name: Optional[str]
+    city: Optional[str]
+    state: Optional[str]
+
+class UserUpdateResponse(BaseModel):
+    first_name: str
+    last_name: str
+    date_of_birth: Optional[date]
+    country_code: Optional[str]
+    phone_number: Optional[str]
+    profile_image: Optional[str]
+    school_name: Optional[str]
+    city: Optional[str]
+    state: Optional[str]
+
+class UserExamRequest(BaseModel):
+    exam_overview_ids: List[int]  # Array of exam IDs to add
+
+class UserExamResponse(BaseModel):
+    user_exam_id: int
+    user_id: int
+    exam_overview_id: int
+    start_date: Optional[datetime]
+    end_date: Optional[datetime]
+    status: int
