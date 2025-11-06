@@ -58,6 +58,10 @@ def get_user_exams(user_id: int):
 def add_user_exams(user_id: int, request: UserExamRequest):
     """Add exams for a specific user"""
     with get_db() as conn:
+
+        print("Received request to add exams:", request)
+        print("request.exam_overview_ids type:", request.exam_overview_ids)
+
         with conn.cursor() as cur:
             try:
                 # First check if user exists
