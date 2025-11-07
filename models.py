@@ -195,3 +195,35 @@ class UserExamResponse(BaseModel):
     start_date: Optional[datetime]
     end_date: Optional[datetime]
     status: int
+
+class UserPracticeExamRequest(BaseModel):
+    user_id: int
+    exam_overview_id: int
+    section_id: int
+    syllabus_id: int
+    difficulty: str
+
+class UserPracticeExamResponse(BaseModel):
+    user_practice_exam_id: int  # Add this field
+    user_id: int
+    exam_overview_id: int
+    section_id: int
+    syllabus_id: int
+    difficulty: str
+    attempt_count: int
+    practice_exam_attempt_details_id: int  # Add this field
+    created_at: datetime  # Optional: add if you want to include it
+
+class PractceExamAttemptDetailsRequest(BaseModel):
+    question_id: int
+    status: int
+    selected_answer: Optional[str] = None 
+
+class PracticeExamAttemptDetailsResponse(BaseModel):
+    practice_exam_attempt_details_id: int
+    user_practice_exam_id: int
+    que_ans_details: List[dict]
+    score: int
+    total_time: int
+    start_time: datetime
+    end_time: Optional[datetime]
