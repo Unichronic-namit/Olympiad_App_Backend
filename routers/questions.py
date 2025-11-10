@@ -49,7 +49,8 @@ def get_questions_for_topic(syllabus_id: int):
             cur.execute("""
                 SELECT question_id, syllabus_id, difficulty, question_text,
                        option_a, option_b, option_c, option_d, correct_option,
-                       solution, is_active, created_at, updated_at
+                       solution, is_active, created_at, updated_at, question_image_url,
+                       option_a_image_url, option_b_image_url, option_c_image_url, option_d_image_url
                 FROM questions
                 WHERE syllabus_id = %s AND is_active = TRUE
                 ORDER BY question_id

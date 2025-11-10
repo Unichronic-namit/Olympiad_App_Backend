@@ -99,6 +99,11 @@ class QuestionResponse(BaseModel):
     is_active: bool
     created_at: datetime
     updated_at: datetime
+    question_image_url: Optional[str] = None
+    option_a_image_url: Optional[str] = None
+    option_b_image_url: Optional[str] = None
+    option_c_image_url: Optional[str] = None
+    option_d_image_url: Optional[str] = None
 
 # # Bulk Upload Model
 # class BulkUploadRequest(BaseModel):
@@ -214,7 +219,7 @@ class UserPracticeExamResponse(BaseModel):
     practice_exam_attempt_details_id: int  # Add this field
     created_at: datetime  # Optional: add if you want to include it
 
-class PractceExamAttemptDetailsRequest(BaseModel):
+class PracticeExamAttemptDetailsRequest(BaseModel):
     question_id: int
     status: int
     selected_answer: Optional[str] = None 
@@ -227,3 +232,57 @@ class PracticeExamAttemptDetailsResponse(BaseModel):
     total_time: int
     start_time: datetime
     end_time: Optional[datetime]
+
+# Nested model for practice exam attempt details
+class PracticeExamAttemptDetailsNested(BaseModel):
+    practice_exam_attempt_details_id: int
+    user_practice_exam_id: int
+    que_ans_details: List[dict]
+    score: int
+    total_time: int
+    start_time: datetime
+    end_time: Optional[datetime]
+
+class UserPracticeExamGetResponse(BaseModel):
+    user_practice_exam_id: int
+    user_id: int
+    exam_overview_id: int
+    section_id: int
+    syllabus_id: int
+    difficulty: str
+    attempt_count: int
+    created_at: datetime
+    practice_exam_attempt_details: PracticeExamAttemptDetailsNested  # Nested object for GET
+
+class QuestionAnswerDetail(BaseModel):
+    status: int
+    question_id: int
+    selected_answer: Optional[str]
+
+# Request model - only fields to update
+class PracticeExamAttemptDetailsUpdateRequest(BaseModel):
+    score: Optional[int] = None
+    total_time: Optional[int] = None
+    end_time: Optional[datetime] = None
+
+# Nested model for user_practice_exam
+class UserPracticeExamNested(BaseModel):
+    user_practice_exam_id: int
+    user_id: int
+    exam_overview_id: int
+    section_id: int
+    syllabus_id: int
+    difficulty: str
+    attempt_count: int
+    created_at: datetime
+
+# Response model with nested user_practice_exam
+class PracticeExamAttemptDetailsFullResponse(BaseModel):
+    practice_exam_attempt_details_id: int
+    user_practice_exam_id: int
+    que_ans_details: List[dict]
+    score: int
+    total_time: int
+    start_time: datetime
+    end_time: Optional[datetime]
+    user_practice_exam: UserPracticeExamNested
