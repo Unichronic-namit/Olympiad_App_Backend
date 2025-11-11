@@ -1,10 +1,11 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 import psycopg2
 import json
 from database import get_db
-from models import UserPracticeExamRequest, UserPracticeExamResponse, UserPracticeExamGetResponse
-from typing import List
+from models import UserPracticeExamRequest, UserPracticeExamResponse, UserPracticeExamPaginatedResponse
 from datetime import datetime
+import math
+from typing import Optional
 
 router = APIRouter(tags=["User Practice Exams"])
 
@@ -50,11 +51,11 @@ def add_user_practice_exams(request: UserPracticeExamRequest):
                     # Insert into user_practice_exam table
                     cur.execute("""
                         INSERT INTO user_practice_exam
-                        (user_id, exam_overview_id, section_id, syllabus_id, difficulty)
-                        VALUES (%s, %s, %s, %s, %s)
+                        (user_id, exam_overview_id, section_id, syllabus_id, difficulty, attempt_count)
+                        VALUES (%s, %s, %s, %s, %s, %s)
                         RETURNING *
                     """, (request.user_id, request.exam_overview_id, request.section_id, 
-                          request.syllabus_id, request.difficulty))
+                          request.syllabus_id, request.difficulty, 1))
                     
                     user_practice_exam_data = cur.fetchone()
                     user_practice_exam_id = user_practice_exam_data['user_practice_exam_id']
@@ -131,15 +132,86 @@ def add_user_practice_exams(request: UserPracticeExamRequest):
                     detail="An unexpected error occurred"
                 )
 
-@router.get("/user_practice_exam/{user_id}", response_model=List[UserPracticeExamGetResponse])
-def get_user_practice_exams(user_id: int):
-    """Get all practice exams with attempt details for a specific user"""
+@router.get("/user_practice_exam/{user_id}", response_model=UserPracticeExamPaginatedResponse)
+def get_user_practice_exams(
+    user_id: int,
+    page: int = Query(1, ge=1, description="Page number (starts from 1)"),
+    page_size: int = Query(10, ge=1, le=100, description="Number of items per page"),
+    difficulty: Optional[str] = Query(None, description="Filter by difficulty level (easy, medium, hard)"),
+    search: Optional[str] = Query(None, description="Search in exam name, section, topic, or subtopic")
+):
+    """Get paginated practice exams with search, filters, and statistics"""
     with get_db() as conn:
         with conn.cursor() as cur:
             try:
-                # Join both tables to get complete data
-                cur.execute("""
+                # Build WHERE clause based on filters
+                where_conditions = ["upe.user_id = %s"]
+                count_params = [user_id]
+                query_params = [user_id]
+                stats_params = [user_id]
+                
+                # Add difficulty filter if provided
+                if difficulty:
+                    where_conditions.append("upe.difficulty = %s")
+                    count_params.append(difficulty)
+                    query_params.append(difficulty)
+                    stats_params.append(difficulty)
+                
+                # Add search filter if provided
+                if search:
+                    search_condition = """(
+                        LOWER(eo.exam) LIKE LOWER(%s) OR
+                        LOWER(s.section) LIKE LOWER(%s) OR
+                        LOWER(sy.topic) LIKE LOWER(%s) OR
+                        LOWER(sy.subtopic) LIKE LOWER(%s)
+                    )"""
+                    where_conditions.append(search_condition)
+                    search_term = f"%{search}%"
+                    count_params.extend([search_term, search_term, search_term, search_term])
+                    query_params.extend([search_term, search_term, search_term, search_term])
+                    stats_params.extend([search_term, search_term, search_term, search_term])
+                
+                where_clause = " AND ".join(where_conditions)
+                
+                # Get aggregate statistics
+                stats_query = f"""
                     SELECT 
+                        COALESCE(SUM(pead.total_time), 0) as total_time,
+                        COALESCE(MAX(pead.score), 0) as best_score,
+                        COALESCE(AVG(pead.score), 0) as average_score,
+                        COUNT(pead.practice_exam_attempt_details_id) as total_attempts
+                    FROM user_practice_exam upe
+                    INNER JOIN practice_exam_attempt_details pead
+                        ON upe.user_practice_exam_id = pead.user_practice_exam_id
+                    INNER JOIN exam_overview eo
+                        ON upe.exam_overview_id = eo.exam_overview_id
+                    INNER JOIN sections s
+                        ON upe.section_id = s.section_id
+                    INNER JOIN syllabus sy
+                        ON upe.syllabus_id = sy.syllabus_id
+                    WHERE {where_clause}
+                """
+                
+                cur.execute(stats_query, stats_params)
+                stats = cur.fetchone()
+                
+                total_count = stats['total_attempts']
+                
+                print(f"Statistics for user ID {user_id}: Total attempts={total_count}, Best score={stats['best_score']}, Avg score={stats['average_score']:.2f}, Total time={stats['total_time']}")
+                
+                # Calculate pagination values
+                total_pages = math.ceil(total_count / page_size) if total_count > 0 else 0
+                offset = (page - 1) * page_size
+                has_next = page < total_pages
+                has_previous = page > 1
+                
+                # Add pagination parameters
+                query_params.extend([page_size, offset])
+                
+                # Join multiple tables to get complete data with pagination and filters
+                main_query = f"""
+                    SELECT 
+                        -- user_practice_exam fields
                         upe.user_practice_exam_id,
                         upe.user_id,
                         upe.exam_overview_id,
@@ -148,27 +220,52 @@ def get_user_practice_exams(user_id: int):
                         upe.difficulty,
                         upe.attempt_count,
                         upe.created_at,
+                        
+                        -- practice_exam_attempt_details fields
                         pead.practice_exam_attempt_details_id,
                         pead.user_practice_exam_id as pead_user_practice_exam_id,
                         pead.que_ans_details,
                         pead.score,
                         pead.total_time,
                         pead.start_time,
-                        pead.end_time
+                        pead.end_time,
+                        
+                        -- exam_overview fields
+                        eo.exam_overview_id as eo_id,
+                        eo.exam,
+                        eo.grade,
+                        eo.level,
+                        eo.total_questions,
+                        eo.total_marks,
+                        eo.total_time_mins,
+                        
+                        -- sections fields
+                        s.section_id as s_id,
+                        s.section,
+                        
+                        -- syllabus fields
+                        sy.syllabus_id as sy_id,
+                        sy.subtopic,
+                        sy.topic
+                        
                     FROM user_practice_exam upe
-                    LEFT JOIN practice_exam_attempt_details pead
+                    INNER JOIN practice_exam_attempt_details pead
                         ON upe.user_practice_exam_id = pead.user_practice_exam_id
-                    WHERE upe.user_id = %s
-                    ORDER BY upe.created_at DESC
-                """, (user_id,))
+                    INNER JOIN exam_overview eo
+                        ON upe.exam_overview_id = eo.exam_overview_id
+                    INNER JOIN sections s
+                        ON upe.section_id = s.section_id
+                    INNER JOIN syllabus sy
+                        ON upe.syllabus_id = sy.syllabus_id
+                    WHERE {where_clause}
+                    ORDER BY pead.start_time DESC
+                    LIMIT %s OFFSET %s
+                """
                 
+                cur.execute(main_query, query_params)
                 rows = cur.fetchall()
                 
-                # Return empty list if no records found
-                if not rows:
-                    return []
-                
-                # Structure the nested response
+                # Structure the nested response with all related data
                 result = []
                 for row in rows:
                     practice_exam = {
@@ -180,6 +277,7 @@ def get_user_practice_exams(user_id: int):
                         "difficulty": row['difficulty'],
                         "attempt_count": row['attempt_count'],
                         "created_at": row['created_at'],
+                        
                         "practice_exam_attempt_details": {
                             "practice_exam_attempt_details_id": row['practice_exam_attempt_details_id'],
                             "user_practice_exam_id": row['pead_user_practice_exam_id'],
@@ -188,13 +286,57 @@ def get_user_practice_exams(user_id: int):
                             "total_time": row['total_time'],
                             "start_time": row['start_time'],
                             "end_time": row['end_time']
+                        },
+                        
+                        "exam_overview": {
+                            "exam_overview_id": row['eo_id'],
+                            "exam": row['exam'],
+                            "grade": row['grade'],
+                            "level": row['level'],
+                            "total_questions": row['total_questions'],
+                            "total_marks": row['total_marks'],
+                            "total_time_mins": row['total_time_mins']
+                        },
+                        
+                        "section": {
+                            "section_id": row['s_id'],
+                            "section": row['section']
+                        },
+                        
+                        "syllabus": {
+                            "syllabus_id": row['sy_id'],
+                            "subtopic": row['subtopic'],
+                            "topic": row['topic']
                         }
                     }
                     result.append(practice_exam)
                 
-                print(f"Retrieved {len(result)} practice exam(s) with details for user ID: {user_id}")
+                # Create pagination metadata
+                pagination_meta = {
+                    "total": total_count,
+                    "page": page,
+                    "page_size": page_size,
+                    "total_pages": total_pages,
+                    "has_next": has_next,
+                    "has_previous": has_previous
+                }
                 
-                return result
+                # Create statistics metadata
+                statistics_meta = {
+                    "total_time": stats['total_time'],
+                    "best_score": stats['best_score'],
+                    "average_score": round(float(stats['average_score']), 2),
+                    "total_attempts": total_count
+                }
+                
+                print(f"Retrieved page {page} with {len(result)} attempt(s) for user ID: {user_id}")
+                
+                # Return paginated response with statistics
+                return {
+                    "data": result,
+                    "pagination": pagination_meta,
+                    "statistics": statistics_meta
+                }
                 
             except psycopg2.Error as e:
                 print(f"Database Error: {str(e)}")
