@@ -208,7 +208,7 @@ def get_user_practice_exams(
                 # Add pagination parameters
                 query_params.extend([page_size, offset])
                 
-                # Join multiple tables to get complete data with pagination and filters
+                # Join multiple tables with enriched que_ans_details
                 main_query = f"""
                     SELECT 
                         -- user_practice_exam fields
@@ -224,7 +224,19 @@ def get_user_practice_exams(
                         -- practice_exam_attempt_details fields
                         pead.practice_exam_attempt_details_id,
                         pead.user_practice_exam_id as pead_user_practice_exam_id,
-                        pead.que_ans_details,
+                        
+                        -- Enrich que_ans_details with correct_option
+                        (
+                            SELECT jsonb_agg(
+                                elem || jsonb_build_object(
+                                    'correct_option', 
+                                    COALESCE(q.correct_option, null)
+                                )
+                            )
+                            FROM jsonb_array_elements(pead.que_ans_details) elem
+                            LEFT JOIN questions q ON (elem->>'question_id')::int = q.question_id
+                        ) as que_ans_details,
+                        
                         pead.score,
                         pead.total_time,
                         pead.start_time,
@@ -246,7 +258,15 @@ def get_user_practice_exams(
                         -- syllabus fields
                         sy.syllabus_id as sy_id,
                         sy.subtopic,
-                        sy.topic
+                        sy.topic,
+                        
+                        -- questions array aggregated by syllabus_id
+                        COALESCE(
+                            (SELECT ARRAY_AGG(q.question_id ORDER BY q.question_id)
+                             FROM questions q
+                             WHERE q.syllabus_id = upe.syllabus_id),
+                            ARRAY[]::integer[]
+                        ) as question_ids
                         
                     FROM user_practice_exam upe
                     INNER JOIN practice_exam_attempt_details pead
@@ -281,7 +301,7 @@ def get_user_practice_exams(
                         "practice_exam_attempt_details": {
                             "practice_exam_attempt_details_id": row['practice_exam_attempt_details_id'],
                             "user_practice_exam_id": row['pead_user_practice_exam_id'],
-                            "que_ans_details": row['que_ans_details'],
+                            "que_ans_details": row['que_ans_details'] or [],
                             "score": row['score'],
                             "total_time": row['total_time'],
                             "start_time": row['start_time'],
@@ -307,6 +327,10 @@ def get_user_practice_exams(
                             "syllabus_id": row['sy_id'],
                             "subtopic": row['subtopic'],
                             "topic": row['topic']
+                        },
+                        
+                        "questions": {
+                            "question_ids": row['question_ids'] or []
                         }
                     }
                     result.append(practice_exam)
