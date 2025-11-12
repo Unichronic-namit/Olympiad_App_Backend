@@ -42,6 +42,9 @@ class SectionResponse(BaseModel):
     no_of_questions: int
     marks_per_question: int
     total_marks: int
+    exam: str
+    grade: int
+    level: int
 
 # Syllabus Models
 class SyllabusCreate(BaseModel):
@@ -243,17 +246,6 @@ class PracticeExamAttemptDetailsNested(BaseModel):
     start_time: datetime
     end_time: Optional[datetime]
 
-class UserPracticeExamGetResponse(BaseModel):
-    user_practice_exam_id: int
-    user_id: int
-    exam_overview_id: int
-    section_id: int
-    syllabus_id: int
-    difficulty: str
-    attempt_count: int
-    created_at: datetime
-    practice_exam_attempt_details: PracticeExamAttemptDetailsNested  # Nested object for GET
-
 class QuestionAnswerDetail(BaseModel):
     status: int
     question_id: int
@@ -286,3 +278,56 @@ class PracticeExamAttemptDetailsFullResponse(BaseModel):
     start_time: datetime
     end_time: Optional[datetime]
     user_practice_exam: UserPracticeExamNested
+
+class SectionNested(BaseModel):
+    section_id: int
+    section: str  # Adjust field names based on your table structure
+    # Add other fields from sections table
+
+class SyllabusNested(BaseModel):
+    syllabus_id: int
+    subtopic: Optional[str]  # Adjust field names based on your table structure
+    topic: Optional[str] = None
+    # Add other fields from syllabus table
+
+class PracticeExamAttemptDetailsNested(BaseModel):
+    practice_exam_attempt_details_id: int
+    user_practice_exam_id: int
+    que_ans_details: List[dict]
+    score: int
+    total_time: int
+    start_time: datetime
+    end_time: Optional[datetime]
+
+class UserPracticeExamGetResponse(BaseModel):
+    user_practice_exam_id: int
+    user_id: int
+    exam_overview_id: int
+    section_id: int
+    syllabus_id: int
+    difficulty: str
+    attempt_count: int
+    created_at: datetime
+    practice_exam_attempt_details: PracticeExamAttemptDetailsNested
+    exam_overview: ExamResponse  # Added
+    section: SectionNested  # Added
+    syllabus: SyllabusNested  # Added
+
+class StatisticsSummary(BaseModel):
+    total_time: int  # Sum of all total_time
+    best_score: int  # Highest score
+    average_score: float  # Average of all scores
+    total_attempts: int  # Total number of attempts
+
+class PaginationMeta(BaseModel):
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+    has_next: bool
+    has_previous: bool
+
+class UserPracticeExamPaginatedResponse(BaseModel):
+    data: List[UserPracticeExamGetResponse]
+    pagination: PaginationMeta
+    statistics: StatisticsSummary  # Add statistics

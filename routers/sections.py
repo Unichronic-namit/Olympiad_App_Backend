@@ -17,10 +17,11 @@ def get_all_sections(exam_overview_id: int):
                 raise HTTPException(status_code=404, detail="Exam not found")
             
             cur.execute("""
-                SELECT section_id, exam_overview_id, section, 
-                       no_of_questions, marks_per_question, total_marks
-                FROM sections
-                WHERE exam_overview_id = %s
+                SELECT s.section_id, s.exam_overview_id, s.section, 
+                       s.no_of_questions, s.marks_per_question, s.total_marks, e.exam, e.grade, e.level
+                FROM sections s INNER JOIN exam_overview e
+                ON s.exam_overview_id = e.exam_overview_id
+                WHERE s.exam_overview_id = %s
                 ORDER BY section_id
             """, (exam_overview_id,))
             
