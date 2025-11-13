@@ -290,6 +290,10 @@ class SyllabusNested(BaseModel):
     topic: Optional[str] = None
     # Add other fields from syllabus table
 
+# Add new nested model for questions
+class QuestionsNested(BaseModel):
+    question_ids: List[int]
+
 class PracticeExamAttemptDetailsNested(BaseModel):
     practice_exam_attempt_details_id: int
     user_practice_exam_id: int
@@ -312,6 +316,7 @@ class UserPracticeExamGetResponse(BaseModel):
     exam_overview: ExamResponse  # Added
     section: SectionNested  # Added
     syllabus: SyllabusNested  # Added
+    questions: QuestionsNested  # Added
 
 class StatisticsSummary(BaseModel):
     total_time: int  # Sum of all total_time
