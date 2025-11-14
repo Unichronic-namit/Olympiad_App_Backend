@@ -58,6 +58,82 @@ def get_questions_for_topic(syllabus_id: int):
             
             questions = cur.fetchall()
             return questions
+        
+@router.get("/section/{section_id}/questions", response_model=List[QuestionResponse])
+def get_questions_for_section(section_id: int):
+    """Get all questions for one section"""
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            try:
+                # Check if section exists
+                cur.execute("SELECT 1 FROM sections WHERE section_id = %s", (section_id,))
+                if not cur.fetchone():
+                    raise HTTPException(status_code=404, detail="Section not found")
+                
+                # Get all syllabus_ids for this section
+                cur.execute("""
+                    SELECT syllabus_id FROM syllabus
+                    WHERE section_id = %s
+                    ORDER BY syllabus_id
+                """, (section_id,))
+                
+                syllabus_ids = cur.fetchall()
+                print(f"Found {len(syllabus_ids)} syllabus records for section {section_id}")
+                
+                if not syllabus_ids:
+                    # No syllabus found for this section
+                    return []
+                
+                # Extract syllabus_ids into a list
+                syl_ids = [row['syllabus_id'] for row in syllabus_ids]
+                print(f"Syllabus IDs: {syl_ids}")
+                
+                # Fetch all questions for all syllabus_ids in ONE query
+                cur.execute("""
+                    SELECT 
+                        question_id, 
+                        syllabus_id, 
+                        difficulty, 
+                        question_text,
+                        option_a, 
+                        option_b, 
+                        option_c, 
+                        option_d, 
+                        correct_option,
+                        solution, 
+                        is_active, 
+                        created_at, 
+                        updated_at, 
+                        question_image_url,
+                        option_a_image_url, 
+                        option_b_image_url, 
+                        option_c_image_url, 
+                        option_d_image_url
+                    FROM questions
+                    WHERE syllabus_id = ANY(%s) AND is_active = TRUE
+                    ORDER BY syllabus_id, question_id
+                """, (syl_ids,))
+                
+                questions = cur.fetchall()
+                
+                print(f"Retrieved {len(questions)} questions for section {section_id}")
+                
+                return questions
+                
+            except HTTPException:
+                raise
+            except psycopg2.Error as e:
+                print(f"Database Error: {str(e)}")
+                raise HTTPException(
+                    status_code=500,
+                    detail="Failed to retrieve questions"
+                )
+            except Exception as e:
+                print(f"Unexpected Error: {str(e)}")
+                raise HTTPException(
+                    status_code=500,
+                    detail="An unexpected error occurred"
+                )
 
 @router.post("/syllabus/{syllabus_id}/questions", response_model=QuestionResponse, status_code=201)
 def add_question(syllabus_id: int, question: QuestionCreate):

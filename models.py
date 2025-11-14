@@ -208,8 +208,8 @@ class UserPracticeExamRequest(BaseModel):
     user_id: int
     exam_overview_id: int
     section_id: int
-    syllabus_id: int
-    difficulty: str
+    syllabus_id: Optional[int] = None
+    difficulty: Optional[str] = None
 
 class UserPracticeExamResponse(BaseModel):
     user_practice_exam_id: int  # Add this field
