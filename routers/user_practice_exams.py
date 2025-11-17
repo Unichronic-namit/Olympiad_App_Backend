@@ -173,23 +173,47 @@ def get_user_practice_exams(
                 
                 where_clause = " AND ".join(where_conditions)
                 
-                # Get aggregate statistics
+                # Get aggregate statistics with percentage calculations
                 stats_query = f"""
+                    WITH attempt_percentages AS (
+                        SELECT 
+                            pead.score,
+                            pead.total_time,
+                            (
+                                SELECT COUNT(q.question_id)
+                                FROM questions q
+                                WHERE q.syllabus_id = upe.syllabus_id AND q.is_active = TRUE
+                            ) as total_questions,
+                            CASE 
+                                WHEN (
+                                    SELECT COUNT(q.question_id)
+                                    FROM questions q
+                                    WHERE q.syllabus_id = upe.syllabus_id AND q.is_active = TRUE
+                                ) > 0 
+                                THEN (pead.score::float / (
+                                    SELECT COUNT(q.question_id)
+                                    FROM questions q
+                                    WHERE q.syllabus_id = upe.syllabus_id AND q.is_active = TRUE
+                                ) * 100)
+                                ELSE 0
+                            END as score_percentage
+                        FROM user_practice_exam upe
+                        INNER JOIN practice_exam_attempt_details pead
+                            ON upe.user_practice_exam_id = pead.user_practice_exam_id
+                        INNER JOIN exam_overview eo
+                            ON upe.exam_overview_id = eo.exam_overview_id
+                        INNER JOIN sections s
+                            ON upe.section_id = s.section_id
+                        INNER JOIN syllabus sy
+                            ON upe.syllabus_id = sy.syllabus_id
+                        WHERE {where_clause}
+                    )
                     SELECT 
-                        COALESCE(SUM(pead.total_time), 0) as total_time,
-                        COALESCE(MAX(pead.score), 0) as best_score,
-                        COALESCE(AVG(pead.score), 0) as average_score,
-                        COUNT(pead.practice_exam_attempt_details_id) as total_attempts
-                    FROM user_practice_exam upe
-                    INNER JOIN practice_exam_attempt_details pead
-                        ON upe.user_practice_exam_id = pead.user_practice_exam_id
-                    INNER JOIN exam_overview eo
-                        ON upe.exam_overview_id = eo.exam_overview_id
-                    INNER JOIN sections s
-                        ON upe.section_id = s.section_id
-                    INNER JOIN syllabus sy
-                        ON upe.syllabus_id = sy.syllabus_id
-                    WHERE {where_clause}
+                        COALESCE(SUM(total_time), 0) as total_time,
+                        COALESCE(MAX(score_percentage), 0) as best_score,
+                        COALESCE(AVG(score_percentage), 0) as average_score,
+                        COUNT(*) as total_attempts
+                    FROM attempt_percentages
                 """
                 
                 cur.execute(stats_query, stats_params)
@@ -197,7 +221,7 @@ def get_user_practice_exams(
                 
                 total_count = stats['total_attempts']
                 
-                print(f"Statistics for user ID {user_id}: Total attempts={total_count}, Best score={stats['best_score']}, Avg score={stats['average_score']:.2f}, Total time={stats['total_time']}")
+                print(f"Statistics for user ID {user_id}: Total attempts={total_count}, Best score={stats['best_score']:.2f}%, Avg score={stats['average_score']:.2f}%, Total time={stats['total_time']}")
                 
                 # Calculate pagination values
                 total_pages = math.ceil(total_count / page_size) if total_count > 0 else 0
@@ -264,7 +288,7 @@ def get_user_practice_exams(
                         COALESCE(
                             (SELECT ARRAY_AGG(q.question_id ORDER BY q.question_id)
                              FROM questions q
-                             WHERE q.syllabus_id = upe.syllabus_id),
+                             WHERE q.syllabus_id = upe.syllabus_id AND q.is_active = TRUE),
                             ARRAY[]::integer[]
                         ) as question_ids
                         
@@ -345,10 +369,10 @@ def get_user_practice_exams(
                     "has_previous": has_previous
                 }
                 
-                # Create statistics metadata
+                # Create statistics metadata with percentage scores
                 statistics_meta = {
                     "total_time": stats['total_time'],
-                    "best_score": stats['best_score'],
+                    "best_score": round(float(stats['best_score']), 2),
                     "average_score": round(float(stats['average_score']), 2),
                     "total_attempts": total_count
                 }
