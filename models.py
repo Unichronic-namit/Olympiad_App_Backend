@@ -223,6 +223,7 @@ class UserPracticeExamResponse(BaseModel):
     created_at: datetime  # Optional: add if you want to include it
 
 class PracticeExamAttemptDetailsRequest(BaseModel):
+    question_no: int
     question_id: int
     status: int
     selected_answer: Optional[str] = None 
@@ -292,7 +293,7 @@ class SyllabusNested(BaseModel):
 
 # Add new nested model for questions
 class QuestionsNested(BaseModel):
-    question_ids: List[int]
+    questions_data: List[dict]
 
 class PracticeExamAttemptDetailsNested(BaseModel):
     practice_exam_attempt_details_id: int

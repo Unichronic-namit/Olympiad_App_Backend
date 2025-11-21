@@ -87,6 +87,7 @@ def update_practice_exam_attempt_details(
                 else:
                     # Question doesn't exist - append new entry
                     new_question_answer = {
+                        "question_no": practice_exam_attempt_details.question_no,
                         "question_id": practice_exam_attempt_details.question_id,
                         "status": practice_exam_attempt_details.status,
                         "selected_answer": practice_exam_attempt_details.selected_answer

@@ -140,7 +140,7 @@ def get_user_practice_exams(
     difficulty: Optional[str] = Query(None, description="Filter by difficulty level (easy, medium, hard)"),
     search: Optional[str] = Query(None, description="Search in exam name, section, topic, or subtopic")
 ):
-    """Get paginated practice exams with search, filters, and statistics"""
+    """Get paginated practice exams with search, filters, statistics, and full questions data."""
     with get_db() as conn:
         with conn.cursor() as cur:
             try:
@@ -150,14 +150,12 @@ def get_user_practice_exams(
                 query_params = [user_id]
                 stats_params = [user_id]
                 
-                # Add difficulty filter if provided
                 if difficulty:
                     where_conditions.append("upe.difficulty = %s")
                     count_params.append(difficulty)
                     query_params.append(difficulty)
                     stats_params.append(difficulty)
                 
-                # Add search filter if provided
                 if search:
                     search_condition = """(
                         LOWER(eo.exam) LIKE LOWER(%s) OR
@@ -167,51 +165,70 @@ def get_user_practice_exams(
                     )"""
                     where_conditions.append(search_condition)
                     search_term = f"%{search}%"
-                    count_params.extend([search_term, search_term, search_term, search_term])
-                    query_params.extend([search_term, search_term, search_term, search_term])
-                    stats_params.extend([search_term, search_term, search_term, search_term])
-                
+                    count_params.extend([search_term]*4)
+                    query_params.extend([search_term]*4)
+                    stats_params.extend([search_term]*4)
+
                 where_clause = " AND ".join(where_conditions)
                 
-                # Get aggregate statistics
+                # Statistics query (score % logic remains unchanged)
                 stats_query = f"""
+                    WITH attempt_percentages AS (
+                        SELECT 
+                            pead.score,
+                            pead.total_time,
+                            (
+                                SELECT COUNT(q.question_id)
+                                FROM questions q
+                                WHERE q.syllabus_id = upe.syllabus_id AND q.is_active = TRUE
+                            ) as total_questions,
+                            CASE 
+                                WHEN (
+                                    SELECT COUNT(q.question_id)
+                                    FROM questions q
+                                    WHERE q.syllabus_id = upe.syllabus_id AND q.is_active = TRUE
+                                ) > 0 
+                                THEN (pead.score::float / (
+                                    SELECT COUNT(q.question_id)
+                                    FROM questions q
+                                    WHERE q.syllabus_id = upe.syllabus_id AND q.is_active = TRUE
+                                ) * 100)
+                                ELSE 0
+                            END as score_percentage
+                        FROM user_practice_exam upe
+                        INNER JOIN practice_exam_attempt_details pead
+                            ON upe.user_practice_exam_id = pead.user_practice_exam_id
+                        INNER JOIN exam_overview eo
+                            ON upe.exam_overview_id = eo.exam_overview_id
+                        INNER JOIN sections s
+                            ON upe.section_id = s.section_id
+                        INNER JOIN syllabus sy
+                            ON upe.syllabus_id = sy.syllabus_id
+                        WHERE {where_clause}
+                    )
                     SELECT 
-                        COALESCE(SUM(pead.total_time), 0) as total_time,
-                        COALESCE(MAX(pead.score), 0) as best_score,
-                        COALESCE(AVG(pead.score), 0) as average_score,
-                        COUNT(pead.practice_exam_attempt_details_id) as total_attempts
-                    FROM user_practice_exam upe
-                    INNER JOIN practice_exam_attempt_details pead
-                        ON upe.user_practice_exam_id = pead.user_practice_exam_id
-                    INNER JOIN exam_overview eo
-                        ON upe.exam_overview_id = eo.exam_overview_id
-                    INNER JOIN sections s
-                        ON upe.section_id = s.section_id
-                    INNER JOIN syllabus sy
-                        ON upe.syllabus_id = sy.syllabus_id
-                    WHERE {where_clause}
+                        COALESCE(SUM(total_time), 0) as total_time,
+                        COALESCE(MAX(score_percentage), 0) as best_score,
+                        COALESCE(AVG(score_percentage), 0) as average_score,
+                        COUNT(*) as total_attempts
+                    FROM attempt_percentages
                 """
-                
+
                 cur.execute(stats_query, stats_params)
                 stats = cur.fetchone()
-                
+
                 total_count = stats['total_attempts']
-                
-                print(f"Statistics for user ID {user_id}: Total attempts={total_count}, Best score={stats['best_score']}, Avg score={stats['average_score']:.2f}, Total time={stats['total_time']}")
-                
-                # Calculate pagination values
+
                 total_pages = math.ceil(total_count / page_size) if total_count > 0 else 0
                 offset = (page - 1) * page_size
                 has_next = page < total_pages
                 has_previous = page > 1
-                
-                # Add pagination parameters
+
                 query_params.extend([page_size, offset])
-                
-                # Join multiple tables with enriched que_ans_details
+
+                # Main data query with questions_data as requested
                 main_query = f"""
                     SELECT 
-                        -- user_practice_exam fields
                         upe.user_practice_exam_id,
                         upe.user_id,
                         upe.exam_overview_id,
@@ -220,29 +237,25 @@ def get_user_practice_exams(
                         upe.difficulty,
                         upe.attempt_count,
                         upe.created_at,
-                        
-                        -- practice_exam_attempt_details fields
+
                         pead.practice_exam_attempt_details_id,
                         pead.user_practice_exam_id as pead_user_practice_exam_id,
-                        
-                        -- Enrich que_ans_details with correct_option
+
                         (
                             SELECT jsonb_agg(
                                 elem || jsonb_build_object(
-                                    'correct_option', 
-                                    COALESCE(q.correct_option, null)
+                                    'correct_option', COALESCE(q.correct_option, null)
                                 )
                             )
                             FROM jsonb_array_elements(pead.que_ans_details) elem
                             LEFT JOIN questions q ON (elem->>'question_id')::int = q.question_id
                         ) as que_ans_details,
-                        
+
                         pead.score,
                         pead.total_time,
                         pead.start_time,
                         pead.end_time,
-                        
-                        -- exam_overview fields
+
                         eo.exam_overview_id as eo_id,
                         eo.exam,
                         eo.grade,
@@ -250,24 +263,39 @@ def get_user_practice_exams(
                         eo.total_questions,
                         eo.total_marks,
                         eo.total_time_mins,
-                        
-                        -- sections fields
+
                         s.section_id as s_id,
                         s.section,
-                        
-                        -- syllabus fields
+
                         sy.syllabus_id as sy_id,
                         sy.subtopic,
                         sy.topic,
-                        
-                        -- questions array aggregated by syllabus_id
+
+                        -- CHANGED: full question data instead of question_ids!
                         COALESCE(
-                            (SELECT ARRAY_AGG(q.question_id ORDER BY q.question_id)
-                             FROM questions q
-                             WHERE q.syllabus_id = upe.syllabus_id),
-                            ARRAY[]::integer[]
-                        ) as question_ids
-                        
+                            (SELECT jsonb_agg(
+                                 jsonb_build_object(
+                                    'question_id', q.question_id,
+                                    'syllabus_id', q.syllabus_id,
+                                    'difficulty', q.difficulty,
+                                    'question_text', q.question_text,
+                                    'option_a', q.option_a,
+                                    'option_b', q.option_b,
+                                    'option_c', q.option_c,
+                                    'option_d', q.option_d,
+                                    'correct_option', q.correct_option,
+                                    'solution', q.solution,
+                                    'question_image_url', q.question_image_url,
+                                    'option_a_image_url', q.option_a_image_url,
+                                    'option_b_image_url', q.option_b_image_url,
+                                    'option_c_image_url', q.option_c_image_url,
+                                    'option_d_image_url', q.option_d_image_url
+                                 )
+                                 ORDER BY q.question_id
+                             ) FROM questions q WHERE q.syllabus_id = upe.syllabus_id AND q.is_active = TRUE),
+                            '[]'::jsonb
+                        ) AS questions_data
+
                     FROM user_practice_exam upe
                     INNER JOIN practice_exam_attempt_details pead
                         ON upe.user_practice_exam_id = pead.user_practice_exam_id
@@ -284,8 +312,7 @@ def get_user_practice_exams(
                 
                 cur.execute(main_query, query_params)
                 rows = cur.fetchall()
-                
-                # Structure the nested response with all related data
+
                 result = []
                 for row in rows:
                     practice_exam = {
@@ -297,7 +324,7 @@ def get_user_practice_exams(
                         "difficulty": row['difficulty'],
                         "attempt_count": row['attempt_count'],
                         "created_at": row['created_at'],
-                        
+
                         "practice_exam_attempt_details": {
                             "practice_exam_attempt_details_id": row['practice_exam_attempt_details_id'],
                             "user_practice_exam_id": row['pead_user_practice_exam_id'],
@@ -307,7 +334,7 @@ def get_user_practice_exams(
                             "start_time": row['start_time'],
                             "end_time": row['end_time']
                         },
-                        
+
                         "exam_overview": {
                             "exam_overview_id": row['eo_id'],
                             "exam": row['exam'],
@@ -317,25 +344,25 @@ def get_user_practice_exams(
                             "total_marks": row['total_marks'],
                             "total_time_mins": row['total_time_mins']
                         },
-                        
+
                         "section": {
                             "section_id": row['s_id'],
                             "section": row['section']
                         },
-                        
+
                         "syllabus": {
                             "syllabus_id": row['sy_id'],
                             "subtopic": row['subtopic'],
                             "topic": row['topic']
                         },
-                        
+
+                        # CHANGED: Provide question data, not just ids!
                         "questions": {
-                            "question_ids": row['question_ids'] or []
+                            "questions_data": row['questions_data'] or []
                         }
                     }
                     result.append(practice_exam)
-                
-                # Create pagination metadata
+
                 pagination_meta = {
                     "total": total_count,
                     "page": page,
@@ -344,34 +371,23 @@ def get_user_practice_exams(
                     "has_next": has_next,
                     "has_previous": has_previous
                 }
-                
-                # Create statistics metadata
+
                 statistics_meta = {
                     "total_time": stats['total_time'],
-                    "best_score": stats['best_score'],
+                    "best_score": round(float(stats['best_score']), 2),
                     "average_score": round(float(stats['average_score']), 2),
                     "total_attempts": total_count
                 }
-                
-                print(f"Retrieved page {page} with {len(result)} attempt(s) for user ID: {user_id}")
-                
-                # Return paginated response with statistics
+
                 return {
                     "data": result,
                     "pagination": pagination_meta,
                     "statistics": statistics_meta
                 }
-                
+            
             except psycopg2.Error as e:
                 print(f"Database Error: {str(e)}")
-                raise HTTPException(
-                    status_code=500,
-                    detail="Failed to retrieve user practice exams"
-                )
-                
+                raise HTTPException(status_code=500, detail="Failed to retrieve user practice exams")
             except Exception as e:
                 print(f"Unexpected Error: {str(e)}")
-                raise HTTPException(
-                    status_code=500,
-                    detail="An unexpected error occurred"
-                )
+                raise HTTPException(status_code=500, detail="An unexpected error occurred")
