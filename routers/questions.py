@@ -1,8 +1,9 @@
+import random
 from fastapi import APIRouter, HTTPException, Query, UploadFile, File
 from typing import List, Optional
 import psycopg2
 from database import get_db
-from models import QuestionCreate, QuestionUpdate, QuestionResponse
+from models import QuestionCreate, QuestionUpdate, QuestionResponse, QuestionsForSectionResponse
 
 router = APIRouter(tags=["Questions"])
 
@@ -59,7 +60,7 @@ def get_questions_for_topic(syllabus_id: int):
             questions = cur.fetchall()
             return questions
         
-@router.get("/section/{section_id}/questions", response_model=List[QuestionResponse])
+@router.get("/section/{section_id}/questions", response_model=QuestionsForSectionResponse)
 def get_questions_for_section(section_id: int):
     """Get all questions for one section"""
     with get_db() as conn:
@@ -69,6 +70,23 @@ def get_questions_for_section(section_id: int):
                 cur.execute("SELECT 1 FROM sections WHERE section_id = %s", (section_id,))
                 if not cur.fetchone():
                     raise HTTPException(status_code=404, detail="Section not found")
+
+                cur.execute("""
+                    SELECT eo.exam_overview_id, eo.exam, eo.grade, eo.level, eo.total_questions, eo.total_marks as exam_total_marks, eo.total_time_mins,
+                     s.section_id, s.section, s.no_of_questions, s.marks_per_question, s.total_marks 
+                     FROM sections s INNER JOIN exam_overview eo
+                     ON s.exam_overview_id = eo.exam_overview_id
+                     WHERE s.section_id = %s
+                """, (section_id,))
+
+                section_exam_overview_data = cur.fetchone()
+                print(f"Section exam overview data: {section_exam_overview_data}")
+
+                marks_per_question_section = section_exam_overview_data['marks_per_question']
+                total_marks_section = section_exam_overview_data['total_marks']
+                no_of_questions_section = section_exam_overview_data['no_of_questions']
+
+                time_for_section = (section_exam_overview_data['total_time_mins'] / section_exam_overview_data['exam_total_marks']) * total_marks_section
                 
                 # Get all syllabus_ids for this section
                 cur.execute("""
@@ -117,8 +135,22 @@ def get_questions_for_section(section_id: int):
                 questions = cur.fetchall()
                 
                 print(f"Retrieved {len(questions)} questions for section {section_id}")
-                
-                return questions
+
+                # Randomly select questions if more than required
+                if len(questions) > no_of_questions_section:
+                    questions = random.sample(questions, no_of_questions_section)
+                elif len(questions) < no_of_questions_section:
+                    # Handle case where there are fewer questions than required
+                    # (You can decide: return all available or raise an error)
+                    pass  # For now, just return what's available
+
+                return {
+                    "questions": questions,
+                    "time_for_section": time_for_section,
+                    "marks_per_question_section": marks_per_question_section,
+                    "total_marks_section": total_marks_section,
+                    "no_of_questions_section": no_of_questions_section
+                }
                 
             except HTTPException:
                 raise
