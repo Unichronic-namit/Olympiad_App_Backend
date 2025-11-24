@@ -38,8 +38,8 @@ def get_all_questions(
             questions = cur.fetchall()
             return questions
 
-@router.get("/syllabus/{syllabus_id}/questions", response_model=List[QuestionResponse])
-def get_questions_for_topic(syllabus_id: int):
+@router.get("/syllabus/{syllabus_id}/{difficulty}/questions", response_model=List[QuestionResponse])
+def get_questions_for_topic(syllabus_id: int, difficulty: str):
     """Get all questions for one topic"""
     with get_db() as conn:
         with conn.cursor() as cur:
@@ -53,9 +53,9 @@ def get_questions_for_topic(syllabus_id: int):
                        solution, is_active, created_at, updated_at, question_image_url,
                        option_a_image_url, option_b_image_url, option_c_image_url, option_d_image_url
                 FROM questions
-                WHERE syllabus_id = %s AND is_active = TRUE
+                WHERE syllabus_id = %s AND difficulty = %s AND is_active = TRUE
                 ORDER BY question_id
-            """, (syllabus_id,))
+            """, (syllabus_id, difficulty))
             
             questions = cur.fetchall()
             return questions
