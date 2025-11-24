@@ -108,6 +108,13 @@ class QuestionResponse(BaseModel):
     option_c_image_url: Optional[str] = None
     option_d_image_url: Optional[str] = None
 
+class QuestionsForSectionResponse(BaseModel):
+    questions: List[QuestionResponse]
+    time_for_section: float
+    marks_per_question_section: int
+    total_marks_section: int
+    no_of_questions_section: int
+
 # # Bulk Upload Model
 # class BulkUploadRequest(BaseModel):
 #     questions: List[QuestionCreate]
@@ -335,5 +342,23 @@ class PaginationMeta(BaseModel):
 
 class UserPracticeExamPaginatedResponse(BaseModel):
     data: List[UserPracticeExamGetResponse]
+    pagination: PaginationMeta
+    statistics: StatisticsSummary  # Add statistics
+
+class UserPracticeSectionExamGetResponse(BaseModel):
+    user_practice_exam_id: int
+    user_id: int
+    exam_overview_id: int
+    section_id: int
+    syllabus_id: int
+    difficulty: str
+    attempt_count: int
+    created_at: datetime
+    practice_exam_attempt_details: PracticeExamAttemptDetailsNested
+    exam_overview: ExamResponse  # Added
+    section: SectionNested  # Added
+
+class UserPracticeSectionExamPaginatedResponse(BaseModel):
+    data: List[UserPracticeSectionExamGetResponse]
     pagination: PaginationMeta
     statistics: StatisticsSummary  # Add statistics

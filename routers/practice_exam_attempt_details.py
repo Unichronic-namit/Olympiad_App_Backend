@@ -30,7 +30,7 @@ def update_practice_exam_attempt_details(
             status_code=400,
             detail="status is required"
         )
-    
+
     with get_db() as conn:
         with conn.cursor() as cur:
             try:
@@ -65,12 +65,12 @@ def update_practice_exam_attempt_details(
                 if question_exists:
                     # Question exists - check status
                     if practice_exam_attempt_details.status == 2 or practice_exam_attempt_details.status == 1:
-                        # Status is 0 - only update status and selected_answer
+                        
                         current_que_ans_details[question_index]['status'] = practice_exam_attempt_details.status
                         current_que_ans_details[question_index]['selected_answer'] = practice_exam_attempt_details.selected_answer
-                        print(f"Updated existing question_id {practice_exam_attempt_details.question_id} with status 0")
+                        print(f"Updated existing question_id {practice_exam_attempt_details.question_id}")
                     else:
-                        # Status is not 0 - don't create new, just skip
+                        
                         print(f"Question_id {practice_exam_attempt_details.question_id} already exists. Skipping.")
                         
                     # Update the array in database
@@ -342,6 +342,8 @@ def update_practice_exam_attempt_details_final(
                 }
                 
                 print(f"Retrieved complete data for practice exam attempt details ID: {practice_exam_attempt_details_id}")
+
+                print(f"Response: {response}")
                 
                 return response
                 
