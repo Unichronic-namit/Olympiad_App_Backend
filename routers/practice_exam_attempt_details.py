@@ -64,13 +64,13 @@ def update_practice_exam_attempt_details(
                 
                 if question_exists:
                     # Question exists - check status
-                    if practice_exam_attempt_details.status == 2 or practice_exam_attempt_details.status == 1:
+                    if practice_exam_attempt_details.status == 2 or practice_exam_attempt_details.status == 1 or practice_exam_attempt_details.status == 0:
                         
                         current_que_ans_details[question_index]['status'] = practice_exam_attempt_details.status
                         current_que_ans_details[question_index]['selected_answer'] = practice_exam_attempt_details.selected_answer
                         print(f"Updated existing question_id {practice_exam_attempt_details.question_id}")
                     else:
-                        
+
                         print(f"Question_id {practice_exam_attempt_details.question_id} already exists. Skipping.")
                         
                     # Update the array in database
