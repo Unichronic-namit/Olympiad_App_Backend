@@ -402,22 +402,24 @@ def get_user_practice_section_exams(
     search: Optional[str] = Query(None, description="Search in exam name or section only")
 ):
     """
-    Get paginated practice section exams for a user. No 'difficulty' filter. 
-    Search only in exam and section.
-    Excludes 'syllabus' and 'questions' in each data row.
+    Get paginated practice section exams for a user.
+    - Only rows where syllabus_id = 0 and difficulty = ''.
+    - Search only in exam and section.
+    - Adds questions.questions_data[] based on que_ans_details order and questions table.
+    - average_score and best_score are based on (score / len(que_ans_details)) * 100.
     """
     with get_db() as conn:
         with conn.cursor() as cur:
             try:
-                # Build WHERE clause (NO difficulty filter)
+                # Base WHERE conditions
                 where_conditions = ["upe.user_id = %s"]
-                # Only include rows where syllabus_id is 0 and difficulty is empty string
+                # Only section-level exams (no syllabus, blank difficulty)
                 where_conditions.append("upe.syllabus_id = 0 AND upe.difficulty = ''")
                 count_params = [user_id]
                 query_params = [user_id]
                 stats_params = [user_id]
 
-                # Search only exam and section fields
+                # Search only on exam and section
                 if search:
                     search_condition = """(
                         LOWER(eo.exam) LIKE LOWER(%s) OR
@@ -425,35 +427,22 @@ def get_user_practice_section_exams(
                     )"""
                     where_conditions.append(search_condition)
                     search_term = f"%{search}%"
-                    count_params.extend([search_term]*2)
-                    query_params.extend([search_term]*2)
-                    stats_params.extend([search_term]*2)
+                    count_params.extend([search_term] * 2)
+                    query_params.extend([search_term] * 2)
+                    stats_params.extend([search_term] * 2)
+
                 where_clause = " AND ".join(where_conditions)
 
-                # Stats CTE (score % logic unchanged, no difficulty)
+                # ---------- STATISTICS: based on (score / len(que_ans_details)) * 100 ----------
                 stats_query = f"""
                     WITH attempt_percentages AS (
                         SELECT 
-                            pead.score,
                             pead.total_time,
-                            (
-                                SELECT COUNT(q.question_id)
-                                FROM questions q
-                                WHERE q.syllabus_id = upe.syllabus_id AND q.is_active = TRUE
-                            ) as total_questions,
                             CASE 
-                                WHEN (
-                                    SELECT COUNT(q.question_id)
-                                    FROM questions q
-                                    WHERE q.syllabus_id = upe.syllabus_id AND q.is_active = TRUE
-                                ) > 0 
-                                THEN (pead.score::float / (
-                                    SELECT COUNT(q.question_id)
-                                    FROM questions q
-                                    WHERE q.syllabus_id = upe.syllabus_id AND q.is_active = TRUE
-                                ) * 100)
+                                WHEN jsonb_array_length(pead.que_ans_details) > 0
+                                THEN (pead.score::float / jsonb_array_length(pead.que_ans_details) * 100)
                                 ELSE 0
-                            END as score_percentage
+                            END AS score_percentage
                         FROM user_practice_exam upe
                         INNER JOIN practice_exam_attempt_details pead
                             ON upe.user_practice_exam_id = pead.user_practice_exam_id
@@ -466,15 +455,15 @@ def get_user_practice_section_exams(
                         WHERE {where_clause}
                     )
                     SELECT 
-                        COALESCE(SUM(total_time), 0) as total_time,
-                        COALESCE(MAX(score_percentage), 0) as best_score,
-                        COALESCE(AVG(score_percentage), 0) as average_score,
-                        COUNT(*) as total_attempts
+                        COALESCE(SUM(total_time), 0) AS total_time,
+                        COALESCE(MAX(score_percentage), 0) AS best_score,
+                        COALESCE(AVG(score_percentage), 0) AS average_score,
+                        COUNT(*) AS total_attempts
                     FROM attempt_percentages
                 """
                 cur.execute(stats_query, stats_params)
                 stats = cur.fetchone()
-                total_count = stats['total_attempts']
+                total_count = stats["total_attempts"]
 
                 total_pages = math.ceil(total_count / page_size) if total_count > 0 else 0
                 offset = (page - 1) * page_size
@@ -482,6 +471,7 @@ def get_user_practice_section_exams(
                 has_previous = page > 1
                 query_params.extend([page_size, offset])
 
+                # ---------- MAIN QUERY: que_ans_details + questions_data ----------
                 main_query = f"""
                     SELECT 
                         upe.user_practice_exam_id,
@@ -494,24 +484,27 @@ def get_user_practice_section_exams(
                         upe.created_at,
 
                         pead.practice_exam_attempt_details_id,
-                        pead.user_practice_exam_id as pead_user_practice_exam_id,
+                        pead.user_practice_exam_id AS pead_user_practice_exam_id,
 
+                        -- Enrich que_ans_details with correct_option, ordered by their position
                         (
                             SELECT jsonb_agg(
-                                elem || jsonb_build_object(
-                                    'correct_option', COALESCE(q.correct_option, null)
-                                )
-                            )
-                            FROM jsonb_array_elements(pead.que_ans_details) elem
-                            LEFT JOIN questions q ON (elem->>'question_id')::int = q.question_id
-                        ) as que_ans_details,
+                                       elem || jsonb_build_object(
+                                           'correct_option', COALESCE(q.correct_option, NULL)
+                                       )
+                                       ORDER BY (elem->>'question_no')::int
+                                   )
+                            FROM jsonb_array_elements(pead.que_ans_details) AS elem
+                            LEFT JOIN questions q 
+                                   ON (elem->>'question_id')::int = q.question_id
+                        ) AS que_ans_details,
 
                         pead.score,
                         pead.total_time,
                         pead.start_time,
                         pead.end_time,
 
-                        eo.exam_overview_id as eo_id,
+                        eo.exam_overview_id AS eo_id,
                         eo.exam,
                         eo.grade,
                         eo.level,
@@ -519,8 +512,38 @@ def get_user_practice_section_exams(
                         eo.total_marks,
                         eo.total_time_mins,
 
-                        s.section_id as s_id,
-                        s.section
+                        s.section_id AS s_id,
+                        s.section,
+
+                        -- questions_data built from que_ans_details order + questions table
+                        COALESCE(
+                            (
+                                SELECT jsonb_agg(
+                                           jsonb_build_object(
+                                               'question_id', q.question_id,
+                                               'syllabus_id', q.syllabus_id,
+                                               'difficulty', q.difficulty,
+                                               'question_text', q.question_text,
+                                               'option_a', q.option_a,
+                                               'option_b', q.option_b,
+                                               'option_c', q.option_c,
+                                               'option_d', q.option_d,
+                                               'correct_option', q.correct_option,
+                                               'solution', q.solution,
+                                               'question_image_url', q.question_image_url,
+                                               'option_a_image_url', q.option_a_image_url,
+                                               'option_b_image_url', q.option_b_image_url,
+                                               'option_c_image_url', q.option_c_image_url,
+                                               'option_d_image_url', q.option_d_image_url
+                                           )
+                                           ORDER BY (qa.elem->>'question_no')::int
+                                       )
+                                FROM jsonb_array_elements(pead.que_ans_details) AS qa(elem)
+                                LEFT JOIN questions q 
+                                       ON (qa.elem->>'question_id')::int = q.question_id
+                            ),
+                            '[]'::jsonb
+                        ) AS questions_data
 
                     FROM user_practice_exam upe
                     INNER JOIN practice_exam_attempt_details pead
@@ -540,39 +563,40 @@ def get_user_practice_section_exams(
 
                 result = []
                 for row in rows:
-                    # OMIT 'syllabus' and 'questions' keys as requested
                     practice_exam = {
-                        "user_practice_exam_id": row['user_practice_exam_id'],
-                        "user_id": row['user_id'],
-                        "exam_overview_id": row['exam_overview_id'],
-                        "section_id": row['section_id'],
-                        "syllabus_id": row['syllabus_id'],
-                        "difficulty": row['difficulty'],
-                        "attempt_count": row['attempt_count'],
-                        "created_at": row['created_at'],
-
+                        "user_practice_exam_id": row["user_practice_exam_id"],
+                        "user_id": row["user_id"],
+                        "exam_overview_id": row["exam_overview_id"],
+                        "section_id": row["section_id"],
+                        "syllabus_id": row["syllabus_id"],
+                        "difficulty": row["difficulty"],
+                        "attempt_count": row["attempt_count"],
+                        "created_at": row["created_at"],
                         "practice_exam_attempt_details": {
-                            "practice_exam_attempt_details_id": row['practice_exam_attempt_details_id'],
-                            "user_practice_exam_id": row['pead_user_practice_exam_id'],
-                            "que_ans_details": row['que_ans_details'] or [],
-                            "score": row['score'],
-                            "total_time": row['total_time'],
-                            "start_time": row['start_time'],
-                            "end_time": row['end_time']
+                            "practice_exam_attempt_details_id": row["practice_exam_attempt_details_id"],
+                            "user_practice_exam_id": row["pead_user_practice_exam_id"],
+                            "que_ans_details": row["que_ans_details"] or [],
+                            "score": row["score"],
+                            "total_time": row["total_time"],
+                            "start_time": row["start_time"],
+                            "end_time": row["end_time"],
                         },
                         "exam_overview": {
-                            "exam_overview_id": row['eo_id'],
-                            "exam": row['exam'],
-                            "grade": row['grade'],
-                            "level": row['level'],
-                            "total_questions": row['total_questions'],
-                            "total_marks": row['total_marks'],
-                            "total_time_mins": row['total_time_mins']
+                            "exam_overview_id": row["eo_id"],
+                            "exam": row["exam"],
+                            "grade": row["grade"],
+                            "level": row["level"],
+                            "total_questions": row["total_questions"],
+                            "total_marks": row["total_marks"],
+                            "total_time_mins": row["total_time_mins"],
                         },
                         "section": {
-                            "section_id": row['s_id'],
-                            "section": row['section']
-                        }
+                            "section_id": row["s_id"],
+                            "section": row["section"],
+                        },
+                        "questions": {
+                            "questions_data": row["questions_data"] or [],
+                        },
                     }
                     result.append(practice_exam)
 
@@ -582,24 +606,30 @@ def get_user_practice_section_exams(
                     "page_size": page_size,
                     "total_pages": total_pages,
                     "has_next": has_next,
-                    "has_previous": has_previous
+                    "has_previous": has_previous,
                 }
 
                 statistics_meta = {
-                    "total_time": stats['total_time'],
-                    "best_score": round(float(stats['best_score']), 2),
-                    "average_score": round(float(stats['average_score']), 2),
-                    "total_attempts": total_count
+                    "total_time": stats["total_time"],
+                    "best_score": round(float(stats["best_score"]), 2),
+                    "average_score": round(float(stats["average_score"]), 2),
+                    "total_attempts": total_count,
                 }
 
                 return {
                     "data": result,
                     "pagination": pagination_meta,
-                    "statistics": statistics_meta
+                    "statistics": statistics_meta,
                 }
             except psycopg2.Error as e:
                 print(f"Database Error: {str(e)}")
-                raise HTTPException(status_code=500, detail="Failed to retrieve user practice section exams")
+                raise HTTPException(
+                    status_code=500,
+                    detail="Failed to retrieve user practice section exams",
+                )
             except Exception as e:
                 print(f"Unexpected Error: {str(e)}")
-                raise HTTPException(status_code=500, detail="An unexpected error occurred")
+                raise HTTPException(
+                    status_code=500,
+                    detail="An unexpected error occurred",
+                )

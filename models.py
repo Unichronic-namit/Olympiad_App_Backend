@@ -357,6 +357,7 @@ class UserPracticeSectionExamGetResponse(BaseModel):
     practice_exam_attempt_details: PracticeExamAttemptDetailsNested
     exam_overview: ExamResponse  # Added
     section: SectionNested  # Added
+    questions: QuestionsNested  # Added
 
 class UserPracticeSectionExamPaginatedResponse(BaseModel):
     data: List[UserPracticeSectionExamGetResponse]
